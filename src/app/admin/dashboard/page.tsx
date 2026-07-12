@@ -42,6 +42,11 @@ export default function AdminDashboard() {
 
   const [checklist, setChecklist] = useState<{ id: number; labelMr: string; labelEn: string; checked: boolean }[]>([]);
 
+  const isConfigured = process.env.NEXT_PUBLIC_SUPABASE_URL && 
+                       !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder') &&
+                       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
+                       !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.includes('placeholder');
+
   // Load checklist from localStorage on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -74,6 +79,10 @@ export default function AdminDashboard() {
   };
 
   const fetchStats = async () => {
+    if (!isConfigured) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       
@@ -240,13 +249,32 @@ export default function AdminDashboard() {
         <div className="text-xs text-gray-400 font-semibold flex items-center gap-1.5">
           <button 
             onClick={fetchStats}
-            className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer text-gray-700 font-semibold"
+            disabled={!isConfigured}
+            className="flex items-center gap-1.5 px-3 py-1.5 border rounded-lg bg-gray-50 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer text-gray-700 font-semibold"
           >
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Loader2 className="h-3.5 w-3.5" />}
             {t('आकडेवारी रिफ्रेश करा', 'Refresh Stats')}
           </button>
         </div>
       </div>
+
+      {!isConfigured && (
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm space-y-2">
+          <p className="font-bold flex items-center gap-1.5">
+            ⚠️ Supabase Configuration Missing
+          </p>
+          <p>
+            The dashboard cannot load statistics because Supabase credentials are not set on Vercel. Please set the following environment variables in your Vercel Project Settings:
+          </p>
+          <ul className="list-disc pl-5 font-mono text-xs space-y-0.5">
+            <li>NEXT_PUBLIC_SUPABASE_URL</li>
+            <li>NEXT_PUBLIC_SUPABASE_ANON_KEY</li>
+          </ul>
+          <p className="text-xs font-semibold text-amber-700">
+            Note: After adding environment variables in Vercel settings, you MUST trigger a new deployment (redeploy) on Vercel for the changes to take effect.
+          </p>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
