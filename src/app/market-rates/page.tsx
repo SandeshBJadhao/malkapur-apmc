@@ -30,6 +30,8 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Sprout,
   Scale,
   Calendar,
@@ -122,6 +124,23 @@ const generateMockRates = (): MarketRate[] => {
 
 type SortField = 'date' | 'commodity' | 'min_price' | 'max_price' | 'modal_price' | 'arrivals_qty';
 type SortOrder = 'asc' | 'desc';
+
+interface SortIconProps {
+  field: SortField;
+  currentField: SortField;
+  order: SortOrder;
+}
+
+const SortIcon = ({ field, currentField, order }: SortIconProps) => {
+  if (currentField !== field) {
+    return <ArrowUpDown className="h-3.5 w-3.5 text-gray-300" />;
+  }
+  return order === 'asc' ? (
+    <ChevronUp className="h-3.5 w-3.5 text-green-700 font-bold" />
+  ) : (
+    <ChevronDown className="h-3.5 w-3.5 text-green-700 font-bold" />
+  );
+};
 
 export default function MarketRatesPage() {
   const { t, language } = useLanguage();
@@ -228,20 +247,27 @@ export default function MarketRatesPage() {
   }, [supabase]);
 
 
-  // Unique list of commodities actually present in dataset
+  // Unique list of commodities actually present in dataset.
+  // Always keyed by rate.commodity_id (the direct FK UUID on market_rates),
+  // which is guaranteed to be present and is the single source of truth for
+  // matching the filter. We explicitly pin comm.id to this value so the
+  // dropdown option values and the filter comparison always align.
   const availableCommodities = useMemo(() => {
     const map = new Map<string, Commodity>();
     rates.forEach((rate) => {
-      if (rate.commodities) {
-        map.set(rate.commodities.id || rate.commodity_id, rate.commodities);
+      if (rate.commodities && rate.commodity_id) {
+        map.set(rate.commodity_id, {
+          ...rate.commodities,
+          id: rate.commodity_id, // pin id to the reliable FK value
+        } as Commodity);
       }
     });
-    
-    // If empty fallback to mock list
+
+    // If empty, fall back to the mock list so the UI stays populated
     if (map.size === 0) {
       MOCK_COMMODITIES.forEach(c => map.set(c.id, c));
     }
-    
+
     return Array.from(map.values());
   }, [rates]);
 
@@ -337,8 +363,9 @@ export default function MarketRatesPage() {
       }
 
       // 4. Commodity Selection Filter
-      const rateCommId = rate.commodities?.id || rate.commodity_id;
-      if (activeSelectedCommodityId !== 'all' && rateCommId !== activeSelectedCommodityId) {
+      // Use rate.commodity_id directly — never depends on the partial
+      // Supabase JOIN object, which may have an unreliable/undefined id.
+      if (activeSelectedCommodityId !== 'all' && rate.commodity_id !== activeSelectedCommodityId) {
         return false;
       }
 
@@ -405,15 +432,27 @@ export default function MarketRatesPage() {
     };
   }, [filteredRates, language]);
 
-  // Sort handler
+  // Sort field change handler (used by toolbar select dropdown)
+  const handleSortFieldChange = (field: SortField) => {
+    setSortField(field);
+    setCurrentPage(1);
+  };
+
+  // Sort order toggle handler (used by toolbar direction button)
+  const handleSortOrderToggle = () => {
+    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    setCurrentPage(1);
+  };
+
+  // Sort handler (used by table column headers for toggle-clicks)
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+      handleSortOrderToggle();
     } else {
       setSortField(field);
       setSortOrder('desc'); // Default to high-to-low / newest
+      setCurrentPage(1);
     }
-    setCurrentPage(1);
   };
 
   // Sorted dataset
@@ -997,7 +1036,7 @@ export default function MarketRatesPage() {
 
         {/* 5. DATA TABLE SECTION */}
         <Card className="shadow-sm border-gray-200 overflow-hidden bg-white">
-          <CardHeader className="pb-3 border-b border-gray-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+          <CardHeader className="pb-3 border-b border-gray-100">
             <div>
               <div className="flex items-center gap-2">
                 <CardTitle className="text-base sm:text-lg text-gray-900 font-bold">
@@ -1010,28 +1049,76 @@ export default function MarketRatesPage() {
                 )}
               </div>
               <CardDescription className="text-xs sm:text-sm">
-                {t('तक्ता क्रमाने लावण्यासाठी कॉलमच्या नावावर क्लिक करा.', 'Click on table headers to sort columns.')}
+                {t('तक्ता क्रमाने लावण्यासाठी कॉलमच्या नावावर क्लिक करा.', 'Click on table headers or use the toolbar below to sort.')}
               </CardDescription>
             </div>
-
-            {/* Pagination Size Selector */}
-            <div className="flex items-center gap-2 text-xs text-gray-500 self-end sm:self-center print:hidden">
-              <span>{t('तक्ता ओळी:', 'Rows per page:')}</span>
-              <Select 
-                value={rowsPerPage.toString()} 
-                onChange={(e) => {
-                  setRowsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="h-8 py-0 px-2 text-xs border-gray-300 rounded font-medium max-w-[80px]"
-              >
-                <option key="size-10" value="10">10</option>
-                <option key="size-25" value="25">25</option>
-                <option key="size-50" value="50">50</option>
-                <option key="size-100" value="100">100</option>
-              </Select>
-            </div>
           </CardHeader>
+
+          {/* New Responsive Sort & Pagination Toolbar */}
+          {isClient && (
+            <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 border-b border-gray-100 bg-gray-50/50 print:hidden transition-all duration-200">
+              {/* Left: Active Sorting Status / Label */}
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-green-700" />
+                <span className="text-xs font-bold text-gray-700">
+                  {t('मांडणी आणि क्रमवारी (Sort & Display)', 'Sort & Display')}
+                </span>
+              </div>
+
+              {/* Right: Controls (Sort By, Sort Order, Page Size) */}
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Sort By Field */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500 whitespace-nowrap">
+                    {t('क्रमवारी:', 'Sort By:')}
+                  </span>
+                  <Select
+                    value={sortField}
+                    onChange={(e) => handleSortFieldChange(e.target.value as SortField)}
+                    className="h-9 py-1 px-3 text-xs border-gray-300 rounded-lg font-semibold bg-white text-gray-700 focus:ring-green-500 focus:border-green-500"
+                  >
+                    <option value="date">{t('दिनांक (Date)', 'Date')}</option>
+                    <option value="commodity">{t('शेतमाल (Commodity)', 'Commodity')}</option>
+                    <option value="min_price">{t('किमान दर (Min Price)', 'Min Price')}</option>
+                    <option value="max_price">{t('कमाल दर (Max Price)', 'Max Price')}</option>
+                    <option value="modal_price">{t('सरासरी दर (Modal Price)', 'Modal Price')}</option>
+                  </Select>
+                </div>
+
+                {/* Sort Order Direction Toggle */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSortOrderToggle}
+                  className="h-9 px-3 border border-gray-300 hover:bg-gray-100 active:scale-95 transition-all text-xs font-semibold flex items-center gap-1.5 rounded-lg text-gray-700"
+                >
+                  <ArrowUpDown className="h-3.5 w-3.5 text-green-700" />
+                  {sortOrder === 'asc' ? t('चढता क्रम (Asc)', 'Ascending') : t('उतरता क्रम (Desc)', 'Descending')}
+                </Button>
+
+                {/* Rows Per Page */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500 whitespace-nowrap">
+                    {t('तक्ता ओळी:', 'Rows:')}
+                  </span>
+                  <Select
+                    value={rowsPerPage.toString()}
+                    onChange={(e) => {
+                      setRowsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="h-9 py-1 px-3 text-xs border-gray-300 rounded-lg font-semibold bg-white text-gray-700 focus:ring-green-500 focus:border-green-500"
+                  >
+                    <option value="10">10</option>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
+
           <CardContent className="p-0">
             
             {loading ? (
@@ -1054,7 +1141,7 @@ export default function MarketRatesPage() {
                         >
                           <div className="flex items-center gap-1.5">
                             {t('दिनांक', 'Date')}
-                            <ArrowUpDown className={`h-3.5 w-3.5 text-gray-400 ${sortField === 'date' ? 'text-green-700' : ''}`} />
+                            <SortIcon field="date" currentField={sortField} order={sortOrder} />
                           </div>
                         </TableHead>
 
@@ -1065,7 +1152,7 @@ export default function MarketRatesPage() {
                         >
                           <div className="flex items-center gap-1.5">
                             {t('शेतमाल (Commodity)', 'Commodity')}
-                            <ArrowUpDown className={`h-3.5 w-3.5 text-gray-400 ${sortField === 'commodity' ? 'text-green-700' : ''}`} />
+                            <SortIcon field="commodity" currentField={sortField} order={sortOrder} />
                           </div>
                         </TableHead>
 
@@ -1076,7 +1163,7 @@ export default function MarketRatesPage() {
                         >
                           <div className="flex items-center gap-1.5 justify-end">
                             {t('किमान दर', 'Min Price')}
-                            <ArrowUpDown className={`h-3.5 w-3.5 text-gray-400 ${sortField === 'min_price' ? 'text-green-700' : ''}`} />
+                            <SortIcon field="min_price" currentField={sortField} order={sortOrder} />
                           </div>
                         </TableHead>
 
@@ -1087,7 +1174,7 @@ export default function MarketRatesPage() {
                         >
                           <div className="flex items-center gap-1.5 justify-end">
                             {t('कमाल दर', 'Max Price')}
-                            <ArrowUpDown className={`h-3.5 w-3.5 text-gray-400 ${sortField === 'max_price' ? 'text-green-700' : ''}`} />
+                            <SortIcon field="max_price" currentField={sortField} order={sortOrder} />
                           </div>
                         </TableHead>
 
@@ -1098,7 +1185,7 @@ export default function MarketRatesPage() {
                         >
                           <div className="flex items-center gap-1.5">
                             {t('सर्वसाधारण दर', 'Modal Price')}
-                            <ArrowUpDown className={`h-3.5 w-3.5 text-gray-400 ${sortField === 'modal_price' ? 'text-green-700' : ''}`} />
+                            <SortIcon field="modal_price" currentField={sortField} order={sortOrder} />
                           </div>
                         </TableHead>
 

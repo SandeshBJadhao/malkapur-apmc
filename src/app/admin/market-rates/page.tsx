@@ -54,7 +54,6 @@ import {
   ImageIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MSAMB_COMMODITY_MAP } from '@/lib/msamb-commodity-map';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -409,10 +408,6 @@ export default function AdminMarketRatesPage() {
   const [rateDeleteLoading, setRateDeleteLoading] = useState(false);
 
   // ─── MSAMB Sync State ─────────────────────────────────────────────────────
-  const [msambSyncModal, setMsambSyncModal] = useState(false);
-  const [msambSyncDate, setMsambSyncDate] = useState(new Date().toISOString().split('T')[0]);
-  const [msambSyncing, setMsambSyncing] = useState(false);
-  const [msambSyncResults, setMsambSyncResults] = useState<{ commodity: string; success: boolean; error?: string }[]>([]);
   const [msambFetching, setMsambFetching] = useState(false);
 
   // ─── Cleanup & View Mode State ───────────────────────────────────────────
@@ -903,76 +898,7 @@ export default function AdminMarketRatesPage() {
     }));
   };
 
-  // ─── MSAMB Sync Handler ──────────────────────────────────────────────────
-  const handleMSAMBSync = async () => {
-    // Build list of rates for the selected date that have an MSAMB mapping
-    const toSync = rates.filter(
-      (r) => r.date === msambSyncDate && r.commodities && MSAMB_COMMODITY_MAP[r.commodities.name_mr]
-    );
 
-    if (!toSync.length) {
-      addToast('error', t(
-        'या तारखेला सिंक करण्यासाठी कोणतेही दर नाहीत.',
-        'No rates available to sync for this date.'
-      ));
-      return;
-    }
-
-    setMsambSyncing(true);
-    setMsambSyncResults([]);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300_000); // 5-min guard
-
-    try {
-      const payload = toSync.map((r) => ({
-        commodity_name_mr: r.commodities!.name_mr,
-        variety:           r.variety || '',
-        // Convert YYYY-MM-DD → DD/MM/YYYY (MSAMB format)
-        date: r.date.split('-').reverse().join('/'),
-        min_price:      r.min_price,
-        max_price:      r.max_price,
-        modal_price:    r.modal_price,
-        min_arrivals:   r.min_arrivals,
-        max_arrivals:   r.max_arrivals,
-        modal_arrivals: r.modal_arrivals,
-      }));
-
-      const res = await fetch('/api/admin/msamb-sync', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ rates: payload }),
-        signal:  controller.signal,
-      });
-
-      const data = await res.json();
-      setMsambSyncResults(data.results || []);
-
-      if (data.success) {
-        addToast('success', t(
-          `${data.successCount} दर MSAMB ला यशस्वीरित्या सिंक झाले! ✅`,
-          `${data.successCount} rate(s) synced to MSAMB successfully! ✅`
-        ));
-      } else if (data.error && !data.results?.length) {
-        addToast('error', data.error);
-      } else {
-        addToast('error', t(
-          `${data.successCount} यशस्वी, ${data.failCount} अयशस्वी. तपशील पहा.`,
-          `${data.successCount} succeeded, ${data.failCount} failed. See details.`
-        ));
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      if (msg.includes('aborted')) {
-        addToast('error', t('MSAMB सिंक timeout झाले.', 'MSAMB sync timed out.'));
-      } else {
-        addToast('error', t(`MSAMB सिंक त्रुटी: ${msg}`, `MSAMB sync error: ${msg}`));
-      }
-    } finally {
-      clearTimeout(timeout);
-      setMsambSyncing(false);
-    }
-  };
 
   const handleMSAMBFetch = async () => {
     setMsambFetching(true);
@@ -1227,20 +1153,7 @@ export default function AdminMarketRatesPage() {
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                 </Button>
-                <Button
-                  onClick={() => {
-                    setMsambSyncDate(ratesDateFilter || new Date().toISOString().split('T')[0]);
-                    setMsambSyncResults([]);
-                    setMsambSyncModal(true);
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className="cursor-pointer h-9 border-emerald-300 text-emerald-700 hover:bg-emerald-50 gap-1.5"
-                  title={t('MSAMB पोर्टलवर दर आपोआप सिंक करा', 'Auto-sync rates to MSAMB portal')}
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  MSAMB Sync
-                </Button>
+
                 <Button
                   onClick={handleMSAMBFetch}
                   disabled={msambFetching}
@@ -2458,192 +2371,7 @@ export default function AdminMarketRatesPage() {
         </div>
       )}
 
-      {/* ── MSAMB Sync Modal ─────────────────────────────────────────────── */}
-      {msambSyncModal && (
-        <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          onClick={() => { if (!msambSyncing) setMsambSyncModal(false); }}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-100 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-emerald-50">
-              <h2 className="text-lg font-bold text-emerald-900 flex items-center gap-2">
-                <Send className="h-5 w-5 text-emerald-700" />
-                MSAMB ला सिंक करा
-              </h2>
-              {!msambSyncing && (
-                <button
-                  onClick={() => setMsambSyncModal(false)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              )}
-            </div>
 
-            <div className="p-6 space-y-4">
-              {/* ── Syncing (loading) state ── */}
-              {msambSyncing ? (
-                <div className="flex flex-col items-center py-10 gap-4 text-center">
-                  <div className="relative">
-                    <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center">
-                      <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-800">
-                      {t('MSAMB पोर्टलवर दर भरत आहे...', 'Submitting rates to MSAMB portal...')}
-                    </p>
-                    <p className="text-sm text-gray-400 mt-1">
-                      {t('हे 2–5 मिनिटे लागू शकते. कृपया हे window बंद करू नका.', 'This may take 2–5 minutes. Please do not close this window.')}
-                    </p>
-                  </div>
-                </div>
-              ) : msambSyncResults.length > 0 ? (
-                /* ── Results state ── */
-                <div className="space-y-3">
-                  <p className="text-sm font-semibold text-gray-700">
-                    {t('सिंक परिणाम', 'Sync Results')}:
-                  </p>
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {msambSyncResults.map((r, i) => (
-                      <div
-                        key={i}
-                        className={cn(
-                          'flex items-start justify-between p-3 rounded-lg border text-sm',
-                          r.success
-                            ? 'bg-emerald-50 border-emerald-200'
-                            : 'bg-red-50 border-red-200'
-                        )}
-                      >
-                        <span className="font-medium text-gray-800">{r.commodity}</span>
-                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                          {r.success ? (
-                            <>
-                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                              <span className="text-emerald-700 text-xs">{t('यशस्वी', 'Success')}</span>
-                            </>
-                          ) : (
-                            <>
-                              <XCircle className="h-4 w-4 text-red-500" />
-                              <span className="text-red-600 text-xs max-w-[180px] truncate" title={r.error}>
-                                {r.error}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <Button
-                    onClick={() => setMsambSyncModal(false)}
-                    className="w-full cursor-pointer mt-2"
-                  >
-                    {t('बंद करा', 'Close')}
-                  </Button>
-                </div>
-              ) : (
-                /* ── Confirmation state ── */
-                <>
-                  <div className="space-y-2">
-                    <p className="text-sm text-gray-600">
-                      {t(
-                        'खालील तारखेचे सर्व दर MSAMB पोर्टलवर आपोआप भरले जातील:',
-                        'All rates for the selected date will be auto-filled on the MSAMB portal:'
-                      )}
-                    </p>
-                    <Input
-                      type="date"
-                      value={msambSyncDate}
-                      onChange={(e) => setMsambSyncDate(e.target.value)}
-                      className="w-full"
-                    />
-                  </div>
-
-                  {/* Preview: which commodities will/won't sync */}
-                  {(() => {
-                    const willSync = rates.filter(
-                      (r) => r.date === msambSyncDate &&
-                             r.commodities &&
-                             MSAMB_COMMODITY_MAP[r.commodities.name_mr]
-                    );
-                    const noMap = rates.filter(
-                      (r) => r.date === msambSyncDate &&
-                             r.commodities &&
-                             !MSAMB_COMMODITY_MAP[r.commodities.name_mr]
-                    );
-                    return (
-                      <div className="space-y-2">
-                        {willSync.length > 0 && (
-                          <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
-                            <p className="text-xs font-bold text-emerald-800 mb-1.5">
-                              ✅ {t('सिंक होईल', 'Will sync')} ({willSync.length})
-                            </p>
-                            {willSync.map((r) => (
-                              <p key={r.id} className="text-xs text-emerald-700 pl-2">
-                                • {r.commodities?.name_mr}
-                                <span className="text-emerald-500 ml-1">
-                                  ({t('सर्वसाधारण', 'Modal')}: ₹{r.modal_price})
-                                </span>
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                        {noMap.length > 0 && (
-                          <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
-                            <p className="text-xs font-bold text-amber-800 mb-1.5">
-                              ⚠️ {t('MSAMB mapping नाही (skip होईल)', 'No MSAMB mapping (will skip)')} ({noMap.length})
-                            </p>
-                            {noMap.map((r) => (
-                              <p key={r.id} className="text-xs text-amber-700 pl-2">
-                                • {r.commodities?.name_mr}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                        {willSync.length === 0 && noMap.length === 0 && (
-                          <div className="py-6 text-center">
-                            <p className="text-sm text-gray-400">
-                              {t('या तारखेला कोणतेही दर नाहीत.', 'No rates found for this date.')}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  <div className="flex gap-3 pt-1">
-                    <Button
-                      variant="outline"
-                      onClick={() => setMsambSyncModal(false)}
-                      className="flex-1 cursor-pointer"
-                    >
-                      {t('रद्द करा', 'Cancel')}
-                    </Button>
-                    <Button
-                      onClick={handleMSAMBSync}
-                      className="flex-1 cursor-pointer bg-emerald-700 hover:bg-emerald-800 gap-2"
-                      disabled={
-                        rates.filter(
-                          (r) => r.date === msambSyncDate &&
-                                 r.commodities &&
-                                 MSAMB_COMMODITY_MAP[r.commodities.name_mr]
-                        ).length === 0
-                      }
-                    >
-                      <Send className="h-4 w-4" />
-                      {t('MSAMB ला सिंक करा', 'Sync to MSAMB')}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Toast Notifications ── */}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
