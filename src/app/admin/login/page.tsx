@@ -19,18 +19,8 @@ export default function AdminLogin() {
   const supabase = createClient();
   const { t, toggleLanguage, language } = useLanguage();
 
-  const isConfigured = process.env.NEXT_PUBLIC_SUPABASE_URL && 
-                       !process.env.NEXT_PUBLIC_SUPABASE_URL.includes('placeholder') &&
-                       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
-                       !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.includes('placeholder');
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isConfigured) {
-      setError(t('सुपाबेस कॉन्फिगरेशन गहाळ आहे. कृपया वर्सेल सेटिंग्ज तपासा.', 'Supabase configuration is missing. Please check your Vercel settings.'));
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(null);
 
@@ -41,13 +31,13 @@ export default function AdminLogin() {
       });
 
       if (error) {
-        setError(error.message);
+        setError(t('चुकीचा ईमेल किंवा पासवर्ड. पुन्हा प्रयत्न करा.', 'Invalid email or password. Please try again.'));
       } else {
         router.push('/admin/dashboard');
-        router.refresh(); // Refresh to trigger middleware re-evaluation
+        router.refresh();
       }
     } catch (err) {
-      setError(t('अनपेक्षित त्रुटी आली.', 'An unexpected error occurred.'));
+      setError(t('अनपेक्षित त्रुटी आली. पुन्हा प्रयत्न करा.', 'An unexpected error occurred. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -84,23 +74,6 @@ export default function AdminLogin() {
         </CardHeader>
         <CardContent className="pt-6">
           <div className="space-y-4">
-            {!isConfigured && (
-              <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs space-y-2">
-                <p className="font-bold flex items-center gap-1">
-                  ⚠️ Supabase Configuration Missing
-                </p>
-                <p>
-                  It looks like your Supabase credentials are not configured on Vercel. Please add these to your Vercel Project Environment Variables:
-                </p>
-                <ul className="list-disc pl-5 font-mono space-y-0.5 text-[11px]">
-                  <li>NEXT_PUBLIC_SUPABASE_URL</li>
-                  <li>NEXT_PUBLIC_SUPABASE_ANON_KEY</li>
-                </ul>
-                <p className="mt-2 text-[10px] font-semibold text-amber-700">
-                  Note: After adding environment variables in Vercel settings, you MUST trigger a new deployment (redeploy) for the changes to take effect.
-                </p>
-              </div>
-            )}
             {error && (
               <div className="p-3 rounded bg-red-50 text-red-600 text-sm border border-red-200">
                 {error}
@@ -109,28 +82,28 @@ export default function AdminLogin() {
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">{t('ईमेल', 'Email')}</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="admin@malkapurapmc.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">{t('पासवर्ड', 'Password')}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? t('साइन इन होत आहे...', 'Signing in...') : t('साइन इन करा', 'Sign In')}
-            </Button>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="admin@malkapurapmc.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">{t('पासवर्ड', 'Password')}</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? t('साइन इन होत आहे...', 'Signing in...') : t('साइन इन करा', 'Sign In')}
+              </Button>
             </form>
           </div>
         </CardContent>
